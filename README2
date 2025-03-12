@@ -1,1 +1,90 @@
+# Load necessary libraries
+library(readr)     # For reading CSV files
+library(Metrics)   # For RMSE and error metrics
+library(hydroGOF)  # For NSE metric
+library(ggplot2)   # For visualization
+library(dplyr)     # For data manipulation
+library(tidyr)     # For reshaping data
+
+# Load the CSV file (Ensure the file is in your working directory)
+data <- read_csv("multi-temperature_data.csv")
+
+# Extract Observed (historical) temperature data
+obs <- data$Observed
+
+# Select all columns starting with "Simulated"
+simulated_columns <- names(data)[grepl("^Simulated", names(data))]
+
+# Initialize an empty list to store results
+results_list <- list()
+
+# Loop through each simulated dataset and compute performance metrics
+for (sim_col in simulated_columns) {
+  
+  sim <- data[[sim_col]]  # Extract the current simulated column
+  
+  # Compute performance metrics
+  SSD <- sum((sim - obs)^2)                           # Sum of Squared Differences
+  MSD <- mean((sim - obs)^2)                          # Mean Squared Difference
+  RMSD <- sqrt(MSD)                                   # Root Mean Squared Difference
+  Bias <- mean(sim - obs)                             # Mean Bias Error
+  CC <- cor(sim, obs)                                 # Correlation Coefficient
+  R2 <- CC^2                                         # Coefficient of Determination
+  nRMSD <- RMSD / mean(obs)                          # Normalized RMSD
+  ANMBD <- abs(Bias) / mean(obs)                     # Absolute Normalized Mean Bias Deviation
+  
+  # ✅ Fix for AARD: Avoid division by zero
+  valid_indices <- obs != 0  # Filter out zero values in 'obs'
+  if (sum(valid_indices) > 0) {
+    AARD <- mean(abs((sim[valid_indices] - obs[valid_indices]) / obs[valid_indices])) * 100
+  } else {
+    AARD <- NA  # If all obs are zero, set AARD to NA
+  }
+  
+  NSE_value <- NSE(sim, obs)                         # Nash-Sutcliffe Efficiency
+  SS <- 1 - (sum((sim - obs)^2) / sum((obs - mean(obs))^2))  # Skill Score
+  
+  # Store results in a dataframe
+  results_list[[sim_col]] <- data.frame(
+    Simulation = sim_col,
+    SSD = SSD,
+    MSD = MSD,
+    RMSD = RMSD,
+    Bias = Bias,
+    CC = CC,
+    R2 = R2,
+    nRMSD = nRMSD,
+    ANMBD = ANMBD,
+    AARD = AARD,  # Using fixed AARD calculation
+    NSE = NSE_value,
+    SS = SS
+  )
+}
+
+# Combine all results into a single dataframe
+results_df <- bind_rows(results_list)
+
+# Print results
+print(results_df)
+
+# Save results to a CSV file
+write_csv(results_df, "multi_performance_metrics.csv")  # Using readr package
+
+# OR using base R:
+write.csv(results_df, "multi_performance_metrics.csv", row.names = FALSE)
+
+# Print confirmation message
+cat("Performance metrics exported to 'multi_performance_metrics.csv'\n")
+
+# Visualization: Scatter Plot for Each Simulated Dataset
+long_data <- data %>%
+  pivot_longer(cols = all_of(simulated_columns), names_to = "Simulation", values_to = "Simulated_Value")
+
+ggplot(long_data, aes(x = Observed, y = Simulated_Value, color = Simulation)) +
+  geom_point(size = 3, alpha = 0.7) +  # Make points slightly transparent
+  geom_smooth(method = "lm", se = FALSE) +
+  ggtitle("Observed vs Simulated Temperature") +
+  xlab("Observed Temperature (°C)") +
+  ylab("Simulated Temperature (°C)") +
+  theme_minimal()
 
